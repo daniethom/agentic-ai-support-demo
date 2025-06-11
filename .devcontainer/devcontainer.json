@@ -19,7 +19,7 @@
       ]
     }
   },
-  "postCreateCommand": "pip install --upgrade pip && sudo apt-get update && sudo apt-get install -y iputils-ping && pip install streamlit requests 'milvus_lite[client]' 'sentence-transformers' 'tavily-python' 'llama-index' 'llama-index-llms-openai' 'llama-index-embeddings-huggingface'",
+  "postCreateCommand": "pip install --upgrade pip && sudo apt-get update && sudo apt-get install -y iputils-ping && pip install streamlit requests 'sentence-transformers' 'tavily-python' 'llama-index' 'llama-index-llms-openai' 'llama-index-embeddings-huggingface' 'pymilvus'",
   "forwardPorts": [8501, 8000, 5000, 8001, 8002],
   "remoteUser": "root"
 }

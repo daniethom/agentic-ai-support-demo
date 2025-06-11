@@ -1,0 +1,32 @@
+[
+  {
+    "id": "faq_internet_down_01",
+    "title": "Basic Internet Troubleshooting",
+    "content": "If your internet connection is down, first check the physical connections of your modem and router. Ensure all cables are securely plugged in. Restart both devices by unplugging them for 60 seconds and then plugging them back in, allowing 5 minutes for them to fully reboot and reconnect.",
+    "category": "network"
+  },
+  {
+    "id": "faq_internet_slow_01",
+    "title": "Troubleshooting Slow Internet",
+    "content": "For slow internet speeds, try disconnecting devices not currently in use. Run a speed test at speedtest.net to verify current performance. Consider temporarily disabling Wi-Fi on other devices to isolate bandwidth issues. Ensure your router firmware is up to date, as outdated firmware can affect performance.",
+    "category": "network"
+  },
+  {
+    "id": "faq_login_failed_01",
+    "title": "Account Login Issues",
+    "content": "If you cannot log into your account, double-check your username and password for typos, paying attention to case-sensitivity. Use the 'Forgot Password' link to initiate a password reset if needed. If your account is locked due to multiple failed attempts, wait 30 minutes before trying again or contact support for a manual unlock.",
+    "category": "account"
+  },
+  {
+    "id": "faq_tv_pixelated_01",
+    "title": "Pixelated TV Picture Quality",
+    "content": "If your TV picture is pixelated or freezing, check the coaxial cable connections at both the TV and the wall outlet. Ensure they are finger-tight. Avoid sharp bends in the cable. If you are using a set-top box, try rebooting it by unplugging it for 30 seconds. Heavy network traffic or weather conditions can also impact streaming quality.",
+    "category": "tv_service"
+  },
+  {
+    "id": "faq_billing_dispute_01",
+    "title": "Billing Dispute Process",
+    "content": "To dispute a charge on your bill, please log into your online account and navigate to the billing section. Select the charge you wish to dispute and follow the instructions to submit your claim. You can also call our billing department directly during business hours. Provide your account number and details of the disputed charge for faster resolution.",
+    "category": "billing"
+  }
+]
