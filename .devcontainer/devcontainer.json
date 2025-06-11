@@ -19,7 +19,7 @@
       ]
     }
   },
-  "postCreateCommand": "pip install --upgrade pip && sudo apt-get update && sudo apt-get install -y iputils-ping && pip install streamlit requests 'sentence-transformers' 'tavily-python' 'llama-index' 'llama-index-llms-openai' 'llama-index-embeddings-huggingface' 'pymilvus==2.5.11' --no-deps && pip install grpcio==1.67.1 protobuf>=3.20.0 python-dotenv ujson pandas tqdm numpy python-dateutil pytz tzdata six",
+  "postCreateCommand": "sudo apt-get update && sudo apt-get install -y iputils-ping && pip install --no-cache-dir -r /workspaces/agentic-ai-support-demo/requirements.txt",
   "forwardPorts": [8501, 8000, 5000, 8001, 8002],
   "remoteUser": "root"
 }
