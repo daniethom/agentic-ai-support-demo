@@ -5,8 +5,7 @@ tavily-python
 llama-index
 llama-index-llms-openai
 llama-index-embeddings-huggingface
-chromadb
-llama-index-vector-stores-chroma
+# Removed chromadb and llama-index-vector-stores-chroma
 fastapi
 uvicorn
 pydantic
