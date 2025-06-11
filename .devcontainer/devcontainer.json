@@ -1,6 +1,6 @@
 {
   "name": "Intelligent IT Support Agent Demo",
-  "image": "mcr.microsoft.com/devcontainers/python:0-3.10", // Using Python 3.10
+  "image": "mcr.microsoft.com/devcontainers/python:3.10", // Changed base image
   "features": {
     "ghcr.io/devcontainers/features/docker-in-docker:2": {
       "version": "latest"
@@ -19,7 +19,7 @@
       ]
     }
   },
-  "postCreateCommand": "sudo apt-get update && sudo apt-get install -y iputils-ping && pip install --no-cache-dir -r /workspaces/agentic-ai-support-demo/requirements.txt",
-  "forwardPorts": [8501, 8000, 5000, 8001, 8002],
+  "postCreateCommand": "pip install --no-cache-dir -r /workspaces/agentic-ai-support-demo/requirements.txt",
+  "forwardPorts": [8501, 8000, 5000, 8001, 8002, 8003],
   "remoteUser": "root"
 }
