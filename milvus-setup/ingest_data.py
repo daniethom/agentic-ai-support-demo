@@ -2,7 +2,7 @@ import os
 import json
 from sentence_transformers import SentenceTransformer
 from llama_index.core import VectorStoreIndex, Document, SimpleDirectoryReader
-from llama_index.core.vector_stores import SimpleVectorStore, VectorStore
+from llama_index.core.vector_stores import SimpleVectorStore
 from llama_index.core.storage.storage_context import StorageContext
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 from llama_index.llms.openai import OpenAI # Dummy LLM, not used for ingestion but required by ServiceContext
