@@ -1,0 +1,25 @@
+{
+  "name": "Intelligent IT Support Agent Demo",
+  "image": "mcr.microsoft.com/devcontainers/python:0-3.10", // Using Python 3.10
+  "features": {
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {
+      "version": "latest"
+    },
+    "ghcr.io/devcontainers/features/kubectl-helm-minikube:1": {
+      "version": "latest"
+    }
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-azuretools.vscode-docker",
+        "redhat.vscode-yaml",
+        "ms-kubernetes-tools.vscode-kubernetes-tools"
+      ]
+    }
+  },
+  "postCreateCommand": "pip install --upgrade pip && sudo apt-get update && sudo apt-get install -y iputils-ping && pip install streamlit requests 'milvus_lite[client]' 'sentence-transformers' 'tavily-python' 'llama-index' 'llama-index-llms-openai' 'llama-index-embeddings-huggingface'",
+  "forwardPorts": [8501, 8000, 5000, 8001, 8002],
+  "remoteUser": "codespace"
+}
