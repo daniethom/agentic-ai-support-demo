@@ -1,0 +1,52 @@
+# Byte-code files
+*.pyc
+__pycache__/
+
+# Virtual environment
+.venv/
+env/
+venv/
+*/.venv/
+*/env/
+*/venv/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.sublime-workspace
+*.sublime-project
+*.code-workspace
+
+# macOS files
+.DS_Store
+
+# Jupyter Notebook files
+.ipynb_checkpoints
+
+# Logs and databases
+*.log
+*.db
+.sqlite
+*.sqlite3
+
+# Environment variables
+.env
+.flaskenv
+
+# Python build artifacts
+build/
+dist/
+*.egg-info/
+
+# Test coverage
+.coverage
+.pytest_cache/
+
+# MyPy cache
+.mypy_cache/
+
+# Specific to this project (important for your demo)
+# Folders where Milvus stores its data
+milvus_data/
+# Folders where LLM models might be downloaded locally
+models/
