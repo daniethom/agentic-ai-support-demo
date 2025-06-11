@@ -1,22 +1,19 @@
 import os
 import json
-from milvus import MilvusClient, CollectionSchema, FieldSchema, DataType
 from sentence_transformers import SentenceTransformer
-import time
-from tqdm import tqdm # For a nice progress bar
+from llama_index.core import VectorStoreIndex, Document, StorageContext
+from llama_index.vector_stores.chroma import ChromaVectorStore
+import chromadb
+from tqdm import tqdm
 
 # --- Configuration ---
-MILVUS_HOST = os.getenv("MILVUS_HOST", "localhost")
-MILVUS_PORT = os.getenv("MILVUS_PORT", "19530")
-MILVUS_URI = f"{MILVUS_HOST}:{MILVUS_PORT}"
 COLLECTION_NAME = "it_support_knowledge"
 DATA_FILE = os.path.join(os.path.dirname(__file__), 'data', 'product_faqs.json')
-EMBEDDING_MODEL_NAME = 'all-MiniLM-L6-v2' # A good small, fast model for embeddings
+EMBEDDING_MODEL_NAME = 'all-MiniLM-L6-v2'
+CHROMA_PERSIST_DIR = os.path.join(os.path.dirname(__file__), 'chroma_data') # Local directory for Chroma data
 
 # --- Initialize Embedding Model ---
 print(f"Loading SentenceTransformer model: {EMBEDDING_MODEL_NAME}...")
-# This model will download if not available locally in the Codespace.
-# It might take a moment.
 try:
     model = SentenceTransformer(EMBEDDING_MODEL_NAME)
     print("Model loaded successfully.")
@@ -25,30 +22,26 @@ except Exception as e:
     print("Please ensure your Codespace has internet access and sufficient resources.")
     exit(1)
 
-
-# --- Milvus Client Initialization ---
-def get_milvus_client():
-    for i in range(10): # Retry connection
-        try:
-            client = MilvusClient(uri=MILVUS_URI)
-            # Check if Milvus is ready by trying a simple operation
-            client.list_collections()
-            print(f"Connected to Milvus at {MILVUS_URI}")
-            return client
-        except Exception as e:
-            print(f"Attempt {i+1}: Could not connect to Milvus at {MILVUS_URI}. Retrying in 5 seconds...")
-            print(f"Error: {e}")
-            time.sleep(5)
-    print("Failed to connect to Milvus after multiple retries. Exiting.")
-    exit(1)
-
 # --- Load Data ---
 def load_data(filepath):
     try:
         with open(filepath, 'r') as f:
-            data = json.load(f)
-        print(f"Loaded {len(data)} documents from {filepath}")
-        return data
+            raw_data = json.load(f)
+        print(f"Loaded {len(raw_data)} raw documents from {filepath}")
+        # Convert raw JSON entries into LlamaIndex Document objects
+        documents = []
+        for item in raw_data:
+            # Store original data in metadata, content in text
+            doc = Document(
+                text=item["content"],
+                metadata={
+                    "id": item["id"],
+                    "title": item["title"],
+                    "category": item["category"]
+                }
+            )
+            documents.append(doc)
+        return documents
     except FileNotFoundError:
         print(f"Error: Data file not found at {filepath}")
         exit(1)
@@ -56,93 +49,73 @@ def load_data(filepath):
         print(f"Error: Invalid JSON in {filepath}")
         exit(1)
 
-# --- Create Collection Schema ---
-def create_collection_schema():
-    # Define the fields in your collection
-    fields = [
-        FieldSchema(name="id", dtype=DataType.VARCHAR, max_length=128, is_primary=True),
-        FieldSchema(name="title", dtype=DataType.VARCHAR, max_length=256),
-        FieldSchema(name="content", dtype=DataType.TEXT),
-        FieldSchema(name="category", dtype=DataType.VARCHAR, max_length=128),
-        FieldSchema(name="embedding", dtype=DataType.FLOAT_VECTOR, dim=model.get_sentence_embedding_dimension()) # Dimension from our model
-    ]
-    # Define the collection schema
-    schema = CollectionSchema(fields=fields, enable_dynamic_field=True)
-    return schema
-
 # --- Main Ingestion Logic ---
 def ingest_data():
-    client = get_milvus_client()
+    print(f"Initializing ChromaDB client (data will be stored in '{CHROMA_PERSIST_DIR}')...")
+    # Ensure the directory exists
+    os.makedirs(CHROMA_PERSIST_DIR, exist_ok=True)
+    db = chromadb.PersistentClient(path=CHROMA_PERSIST_DIR)
 
-    # Drop collection if it already exists for a clean demo run
-    if client.has_collection(collection_name=COLLECTION_NAME):
-        print(f"Collection '{COLLECTION_NAME}' already exists. Dropping it...")
-        client.drop_collection(collection_name=COLLECTION_NAME)
-        print("Collection dropped.")
+    # Get or create the collection
+    # LlamaIndex will manage embeddings via its service context
+    try:
+        chroma_collection = db.get_or_create_collection(COLLECTION_NAME)
+        print(f"ChromaDB collection '{COLLECTION_NAME}' ready.")
+    except Exception as e:
+        print(f"Error getting/creating ChromaDB collection: {e}")
+        print("Attempting to delete existing collection and retry.")
+        try:
+            db.delete_collection(COLLECTION_NAME)
+            chroma_collection = db.get_or_create_collection(COLLECTION_NAME)
+            print(f"ChromaDB collection '{COLLECTION_NAME}' recreated.")
+        except Exception as retry_e:
+            print(f"Failed to delete and recreate collection: {retry_e}")
+            exit(1)
 
-    # Create the collection
-    schema = create_collection_schema()
-    print(f"Creating collection '{COLLECTION_NAME}'...")
-    client.create_collection(
-        collection_name=COLLECTION_NAME,
-        schema=schema,
-        # Set up the index for efficient vector search
-        index_params={
-            "field_name": "embedding",
-            "index_type": "FLAT", # Simple index for small datasets, faster for demo
-            "metric_type": "L2"    # Euclidean distance
-        }
-    )
-    print(f"Collection '{COLLECTION_NAME}' created.")
+    # Set up ChromaDB as a LlamaIndex VectorStore
+    vector_store = ChromaVectorStore(chroma_collection=chroma_collection)
+    storage_context = StorageContext.from_defaults(vector_store=vector_store)
 
-    # Load data from JSON file
+    # Load documents
     documents = load_data(DATA_FILE)
 
-    # Prepare data for insertion
-    entities = []
-    print(f"Generating embeddings and preparing data for insertion into '{COLLECTION_NAME}'...")
-    for doc in tqdm(documents, desc="Embedding documents"):
-        # Generate embedding for the content
-        embedding = model.encode(doc["content"]).tolist() # Convert numpy array to list
-        entities.append({
-            "id": doc["id"],
-            "title": doc["title"],
-            "content": doc["content"],
-            "category": doc["category"],
-            "embedding": embedding
-        })
+    # Create LlamaIndex for ingestion (this will embed and store in Chroma)
+    print("Creating VectorStoreIndex (this will embed and ingest data)...")
+    # We need a ServiceContext to provide the embedding model to the index
+    from llama_index.core import ServiceContext
+    from llama_index.embeddings.huggingface import HuggingFaceEmbedding
+    from llama_index.llms.openai import OpenAI # Dummy LLM, not used for ingestion but required by ServiceContext
 
-    # Insert data into Milvus
-    print(f"Inserting {len(entities)} entities...")
-    insert_result = client.insert(
-        collection_name=COLLECTION_NAME,
-        data=entities
+    # Initialize the embedding model directly for LlamaIndex
+    embed_model_llama_index = HuggingFaceEmbedding(model_name=EMBEDDING_MODEL_NAME)
+    # Create a dummy LLM as it's required by ServiceContext, but won't be used for just ingestion
+    dummy_llm = OpenAI(model="gpt-3.5-turbo", api_key="sk-dummy", api_base="http://localhost:1", temperature=0.0)
+
+    service_context = ServiceContext.from_defaults(
+        llm=dummy_llm,
+        embed_model=embed_model_llama_index,
+        chunk_size=512 # Default chunk size
     )
-    print(f"Data insertion complete. Inserted IDs: {insert_result['insert_ids']}")
-    print(f"Total entities in collection: {client.get_collection_stats(COLLECTION_NAME)['row_count']}")
 
-    # --- Optional: Verify data by performing a sample search ---
-    print("\nPerforming a sample vector search to verify data ingestion:")
+    index = VectorStoreIndex.from_documents(
+        documents,
+        storage_context=storage_context,
+        service_context=service_context,
+        show_progress=True # Show progress bar for embedding
+    )
+    print("Data ingestion into ChromaDB complete.")
+
+    # --- Optional: Verify data by performing a sample query ---
+    print("\nPerforming a sample vector query to verify data ingestion:")
+    query_engine = index.as_query_engine(similarity_top_k=1)
     query_text = "my internet is not working"
-    query_embedding = model.encode(query_text).tolist()
+    response = query_engine.query(query_text)
 
-    search_results = client.search(
-        collection_name=COLLECTION_NAME,
-        data=[query_embedding],
-        output_fields=["title", "content", "category"],
-        limit=1 # Retrieve top 1 most similar result
-    )
-
-    if search_results and search_results[0]['hits']:
-        print(f"Query: '{query_text}'")
-        print(f"Found match: {search_results[0]['hits'][0]['entity']['title']}")
-        print(f"Content: {search_results[0]['hits'][0]['entity']['content']}")
-        print(f"Similarity Score: {search_results[0]['hits'][0]['score']:.4f}")
-    else:
-        print("No results found for sample query.")
-
-    client.close()
-    print("Milvus client closed.")
+    print(f"Query: '{query_text}'")
+    print(f"Retrieved Node (Title): {response.source_nodes[0].node.metadata.get('title')}")
+    print(f"Retrieved Node (Content): {response.source_nodes[0].node.text}")
+    print(f"Similarity Score (LlamaIndex): {response.source_nodes[0].score:.4f}")
+    print(f"Generated Response: {response}") # Note: This response will be generic as no actual LLM connection yet
 
 if __name__ == "__main__":
     ingest_data()
