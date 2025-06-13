@@ -45,8 +45,20 @@ dist/
 # MyPy cache
 .mypy_cache/
 
-# Specific to this project (important for your demo)
-# Folders where Milvus stores its data
-milvus_data/
 # Folders where LLM models might be downloaded locally
 models/
+
+# Environment variables
+.env
+
+# Python virtual environment
+venv/
+__pycache__/
+*.pyc
+
+# Local Database
+chroma_db/
+
+# IDE settings
+.vscode/
+.idea/

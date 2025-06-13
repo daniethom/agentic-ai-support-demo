@@ -1,0 +1,15 @@
+# Requirements for RAG data ingestion using ChromaDB
+llama-index
+llama-index-embeddings-huggingface
+llama-index-vector-stores-chroma
+llama-index-llms-openai
+
+# Vector Database
+chromadb
+
+#Local LLM
+llama-index-llms-ollama
+
+# Utilities
+tqdm
+python-dotenv

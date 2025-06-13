@@ -1,11 +1,16 @@
+# Main Application Dependencies
 streamlit
 requests
 sentence-transformers
 tavily-python
 llama-index==0.10.37.post1
 llama-index-core==0.10.37.post1
-llama-index-llms-openai==0.1.20
+# We will replace the OpenAI LLM with IBM's later
+llama-index-llms-openai==0.1.20 
 llama-index-embeddings-huggingface==0.1.10
-fastapi
-uvicorn
-pydantic
+crewai
+# For our vector database
+chromadb 
+llama-index-vector-stores-chroma
+# For reading API keys from .env file
+python-dotenv
