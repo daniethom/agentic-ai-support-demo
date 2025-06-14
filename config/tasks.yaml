@@ -1,0 +1,25 @@
+initial_analysis:
+  description: |
+    1. Greet the user and acknowledge their problem: "{inquiry}".
+    2. Identify and extract the customer's account ID from the inquiry.
+    3. Use the Customer Details tool to fetch their account information.
+    4. Use the Knowledge Base tool to search for solutions related to their problem.
+    5. Synthesize the findings and determine if the issue can be resolved with the available information.
+    6. Formulate a preliminary response for the user. If the solution is clear, provide it.
+       If not, summarize the findings for escalation to Tier 2.
+  expected_output: |
+    A summary of the customer's issue, their account details, any relevant information
+    found in the Knowledge Base, and a recommendation on whether to respond directly or escalate.
+
+advanced_troubleshooting:
+  description: |
+    1. Review the analysis from the Tier 1 agent.
+    2. If the issue requires a specific guide (e.g., 'internet_slow'), use the Troubleshooting tool to get the steps.
+    3. If the analysis suggests a remote action, like a reboot, use the Reboot Device tool.
+    4. If the issue is novel, use the web search tool to find potential solutions.
+    5. Based on all gathered information, formulate a comprehensive final response for the customer.
+    6. If the issue cannot be resolved after all steps, use the Ticketing tool to create a support ticket.
+       The ticket summary should be clear and concise.
+  expected_output: |
+    A final, comprehensive, and helpful response to be sent to the customer. This response should either contain the solution
+    to their problem, or confirmation that a support ticket has been created with the ticket ID and details.

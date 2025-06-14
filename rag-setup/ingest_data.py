@@ -1,87 +1,56 @@
+# In agentic-ai-support-demo/rag-setup/ingest_data.py
+
 import os
 import json
-from tqdm import tqdm
-import chromadb
+import weaviate # Use the v4 client
 from llama_index.core import Document, VectorStoreIndex, Settings
-from llama_index.vector_stores.chroma import ChromaVectorStore
-from llama_index.core.storage.storage_context import StorageContext
+from llama_index.vector_stores.weaviate import WeaviateVectorStore
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
-# --- New: Import Ollama ---
-from llama_index.llms.ollama import Ollama
 
-# --- Configuration ---
-DATA_FILE = os.path.join(os.path.dirname(__file__), 'data', 'product_faqs.json')
-EMBEDDING_MODEL_NAME = 'all-MiniLM-L6-v2'
-CHROMA_DB_PATH = os.path.join(os.path.dirname(__file__), '..', 'chroma_db')
+def ingest_data_weaviate_v4():
+    """
+    Loads data and ingests it into a running Weaviate instance using the v4 client.
+    """
+    print("--- Starting Data Ingestion for Weaviate (v4 Client) ---")
 
-# --- Load Data (Unchanged) ---
-def load_data(filepath):
+    # --- Configuration ---
+    DATA_FILE = os.path.join(os.path.dirname(__file__), 'data', 'product_faqs.json')
+    EMBEDDING_MODEL_NAME = 'all-MiniLM-L6-v2'
+    WEAVIATE_INDEX_NAME = "SupportFAQs"
+
+    # --- Load Data ---
     try:
-        with open(filepath, 'r') as f:
-            raw_data = json.load(f)
-        print(f"Loaded {len(raw_data)} raw documents from {filepath}")
-        documents = []
-        for item in tqdm(raw_data, desc="Preparing LlamaIndex Documents"):
-            doc = Document(
-                text=item["content"],
-                metadata={
-                    "id": item["id"],
-                    "title": item["title"],
-                    "category": item["category"]
-                }
-            )
-            documents.append(doc)
-        return documents
-    except FileNotFoundError:
-        print(f"Error: Data file not found at {filepath}")
-        exit(1)
-    except json.JSONDecodeError:
-        print(f"Error: Invalid JSON in {filepath}")
+        with open(DATA_FILE, 'r') as f:
+            documents = [Document(text=item["content"], metadata={"id": item["id"], "title": item["title"], "category": item["category"]}) for item in json.load(f)]
+        print(f"Loaded {len(documents)} raw documents.")
+    except Exception as e:
+        print(f"Error loading data: {e}")
         exit(1)
 
-# --- Main Ingestion Logic ---
-def ingest_data():
-    print("--- Starting Data Ingestion for ChromaDB ---")
-    documents = load_data(DATA_FILE)
+    # --- Setup and Ingestion ---
+    print("Connecting to Weaviate instance using the v4 client...")
+    # Use the v4 connection method
+    client = weaviate.connect_to_local()
+    
+    # Check if the collection already exists and delete it for a clean run
+    if client.collections.exists(WEAVIATE_INDEX_NAME):
+        client.collections.delete(WEAVIATE_INDEX_NAME)
+        print(f"Deleted existing Weaviate collection: {WEAVIATE_INDEX_NAME}")
 
-    print(f"Initializing ChromaDB at: {CHROMA_DB_PATH}")
-    db = chromadb.PersistentClient(path=CHROMA_DB_PATH)
-    chroma_collection = db.get_or_create_collection("support_faqs")
-    vector_store = ChromaVectorStore(chroma_collection=chroma_collection)
-    storage_context = StorageContext.from_defaults(vector_store=vector_store)
+    vector_store = WeaviateVectorStore(weaviate_client=client, index_name=WEAVIATE_INDEX_NAME)
 
     print(f"Loading embedding model: {EMBEDDING_MODEL_NAME}")
     Settings.embed_model = HuggingFaceEmbedding(model_name=EMBEDDING_MODEL_NAME)
-    # --- New: Use Ollama for the LLM setting ---
-    # Make sure Ollama is running on your machine
-    Settings.llm = Ollama(model="llama3", request_timeout=120.0) # Increased timeout to 120 seconds
-    Settings.chunk_size = 512
+    Settings.llm = None
 
-    print("Creating VectorStoreIndex...")
-    index = VectorStoreIndex.from_documents(
+    print(f"Creating and storing index '{WEAVIATE_INDEX_NAME}' in Weaviate...")
+    VectorStoreIndex.from_documents(
         documents,
-        storage_context=storage_context,
+        vector_store=vector_store,
         show_progress=True
     )
-    print("--- Data ingestion into ChromaDB complete. ---")
-
-    print("\nPerforming a sample query with local LLM to verify...")
-    query_engine = index.as_query_engine(similarity_top_k=2)
-    response = query_engine.query("my internet is not working")
-    
-    print(f"\nQuery: 'my internet is not working'")
-    print(f"\nGenerated Response: {response}")
-    
-    if response.source_nodes:
-        print("\n--- Retrieved Source Nodes ---")
-        for i, source_node in enumerate(response.source_nodes):
-            print(f"Source {i+1} (Score: {source_node.score:.4f}):")
-            print(f"  Title: {source_node.node.metadata.get('title')}")
-            print(f"  Content: {source_node.node.text[:100]}...") # Print first 100 chars
-        print("--------------------------")
-    else:
-        print("No relevant nodes found.")
-
+    print("\n--- ✅ Success! Data ingestion into Weaviate is complete. ---")
+    client.close() # Close the connection
 
 if __name__ == "__main__":
-    ingest_data()
+    ingest_data_weaviate_v4()
