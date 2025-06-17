@@ -1,0 +1,9 @@
+{
+  "model_alias_map": {
+    "local-llm": {
+      "model_name": "llama3",
+      "provider": "ollama",
+      "api_base": "http://llm:11434"
+    }
+  }
+}

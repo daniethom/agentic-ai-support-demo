@@ -1,0 +1,30 @@
+# Ignore Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Ignore virtual environments
+venv/
+.env/
+
+# Ignore system files
+.DS_Store
+Thumbs.db
+
+# Ignore model weights, if present
+models/
+*.bin
+*.gguf
+
+# Ignore git-related files
+.git
+.gitignore
+
+# Ignore test output/logs
+*.log
+*.tmp
+*.out
+
+# Ignore any local dev config overrides
+.env.local
