@@ -1,9 +1,9 @@
 {
   "model_alias_map": {
-    "local-llm": {
-      "model_name": "llama3",
+    "demo-llm": {
+      "model_name": "mistral",
       "provider": "ollama",
-      "api_base": "http://llm:11434"
+      "api_base": "http://host.containers.internal:11434"
     }
   }
 }

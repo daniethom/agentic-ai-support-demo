@@ -1,15 +1,15 @@
 version: "3.9"
 
 services:
-  llm:
-    image: ollama/ollama:latest
+  ollama-llm:
+    image: ollama/ollama
     container_name: ollama-llm
     ports:
-      - "11434:11434"  # Ollama default port
+      - "11434:11434"  # Ollama OpenAI-compatible API
     volumes:
-      - ollama:/root/.ollama
-    tty: true
+      - ollama_models:/root/.ollama
     restart: unless-stopped
+    command: ["ollama", "serve"]
 
   weaviate:
     image: semitechnologies/weaviate:latest
@@ -44,16 +44,16 @@ services:
     build: .
     container_name: ai-support-demo
     ports:
-      - "8501:8501"  # Streamlit
+      - "8501:8501"
     environment:
       - LITELLM_CONFIG_PATH=/app/litellm.config.json
     volumes:
       - .:/app
     depends_on:
-      - llm
+      - ollama-llm
       - weaviate
     restart: unless-stopped
 
 volumes:
-  ollama:
+  ollama_models:
   weaviate_data:
