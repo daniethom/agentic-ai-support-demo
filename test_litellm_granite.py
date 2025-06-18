@@ -1,19 +1,14 @@
-import os
 from litellm import completion
-import litellm
-litellm._turn_on_debug()
+import os
 
-# Ensure config path is set
-os.environ["LITELLM_CONFIG_PATH"] = "/Users/dthom/git/agentic-ai-support-demo/litellm.config.json"
-
-print("📄 LITELLM_CONFIG_PATH:", os.environ.get("LITELLM_CONFIG_PATH"))
+os.environ["LITELLM_CONFIG_PATH"] = "./litellm.config.json"
 
 response = completion(
     model="demo-llm",
     messages=[
         {"role": "system", "content": "You are a helpful assistant."},
-        {"role": "user", "content": "What is the capital of France?"}
+        {"role": "user", "content": "How do I fix WiFi problems?"}
     ]
 )
 
-print("✅ Response:", response["choices"][0]["message"]["content"])
+print(response["choices"][0]["message"]["content"])
