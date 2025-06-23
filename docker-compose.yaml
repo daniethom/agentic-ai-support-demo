@@ -5,11 +5,16 @@ services:
     image: ollama/ollama
     container_name: ollama-llm
     ports:
-      - "11434:11434"  # Ollama OpenAI-compatible API
+      - "11434:11434"
     volumes:
       - ollama_models:/root/.ollama
     restart: unless-stopped
     command: ["ollama", "serve"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
 
   weaviate:
     image: semitechnologies/weaviate:latest
@@ -25,20 +30,25 @@ services:
     volumes:
       - weaviate_data:/var/lib/weaviate
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/v1/meta"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
 
   api-services:
     build: ./api
     container_name: support-api
     ports:
       - "8000:8000"
-      - "8001:8001"
-      - "8002:8002"
-      - "8003:8003"
-    volumes:
-      - ./api:/app
     depends_on:
       - weaviate
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
 
   app:
     build: .
@@ -52,6 +62,7 @@ services:
     depends_on:
       - ollama-llm
       - weaviate
+      - api-services
     restart: unless-stopped
 
 volumes:

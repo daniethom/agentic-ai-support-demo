@@ -1,3 +1,4 @@
+import os
 from crewai import Crew, Agent, Task
 from app.tools import (
     KnowledgeBaseTool,
@@ -7,6 +8,11 @@ from app.tools import (
     DeviceRebootTool,
     TavilySearchTool
 )
+
+# CRITICAL: Set the config path for LiteLLM before you initialize any agent.
+# This ensures that LiteLLM knows where to find your model definitions.
+# We assume this script is run from the root of the project where litellm.config.json is located.
+os.environ["LITELLM_CONFIG_PATH"] = "litellm.config.json"
 
 # Define agents
 customer_support_agent = Agent(

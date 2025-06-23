@@ -1,6 +1,6 @@
 import os
 import streamlit as st
-from app.agents import support_crew  # Adjust if your path is different
+from app.agents import support_crew
 
 # Ensure LiteLLM picks up the correct config file (important for Docker)
 os.environ["LITELLM_CONFIG_PATH"] = "/app/litellm.config.json"
@@ -21,11 +21,14 @@ def main():
         else:
             with st.spinner("AI agents are working..."):
                 try:
-                    resolution = support_crew.run(inquiry)
+                    # Use kickoff instead of run
+                    resolution = support_crew.kickoff(inputs={"input": inquiry})
                     st.success("✅ Resolution:")
                     st.write(resolution)
                 except Exception as e:
                     st.error(f"❌ Something went wrong:\n\n{e}")
+                    # Add debugging info
+                    st.error(f"Error details: {str(e)}")
 
 if __name__ == "__main__":
     main()
