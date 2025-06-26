@@ -1,0 +1,613 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: agentic-ai-demo
+---
+# Weaviate - Conservative memory settings
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: weaviate
+  namespace: agentic-ai-demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: weaviate
+  template:
+    metadata:
+      labels:
+        app: weaviate
+    spec:
+      containers:
+      - name: weaviate
+        image: semitechnologies/weaviate:latest
+        ports:
+        - containerPort: 8080
+        env:
+        - name: QUERY_DEFAULTS_LIMIT
+          value: "25"
+        - name: AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED
+          value: "true"
+        - name: PERSISTENCE_DATA_PATH
+          value: "/var/lib/weaviate"
+        - name: DEFAULT_VECTORIZER_MODULE
+          value: "none"
+        - name: ENABLE_MODULES
+          value: "none"
+        - name: LIMIT_RESOURCES
+          value: "true"
+        resources:
+          requests:
+            memory: "512Mi"      # Reduced from 1Gi
+            cpu: "200m"          # Reduced from 250m
+          limits:
+            memory: "800Mi"      # Reduced from 1.5Gi
+            cpu: "400m"          # Reduced from 500m
+        volumeMounts:
+        - name: weaviate-data
+          mountPath: /var/lib/weaviate
+      volumes:
+      - name: weaviate-data
+        emptyDir:
+          sizeLimit: 2Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: weaviate
+  namespace: agentic-ai-demo
+spec:
+  selector:
+    app: weaviate
+  ports:
+  - port: 8080
+    targetPort: 8080
+---
+# Ollama - Significantly reduced memory requirements
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ollama
+  namespace: agentic-ai-demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ollama
+  template:
+    metadata:
+      labels:
+        app: ollama
+    spec:
+      containers:
+      - name: ollama
+        image: ollama/ollama
+        ports:
+        - containerPort: 11434
+        command: ["ollama", "serve"]
+        env:
+        - name: OLLAMA_HOST
+          value: "0.0.0.0"
+        - name: OLLAMA_MODELS
+          value: "/models"
+        # Memory-optimized settings for Ollama
+        - name: OLLAMA_NUM_PARALLEL
+          value: "1"
+        - name: OLLAMA_MAX_LOADED_MODELS
+          value: "1"
+        - name: OLLAMA_FLASH_ATTENTION
+          value: "1"
+        resources:
+          requests:
+            memory: "1Gi"        # Reduced from 2Gi
+            cpu: "300m"          # Reduced from 500m
+          limits:
+            memory: "2Gi"        # Reduced from 3Gi
+            cpu: "800m"          # Reduced from 1500m
+        volumeMounts:
+        - name: ollama-models
+          mountPath: /models
+      volumes:
+      - name: ollama-models
+        emptyDir:
+          sizeLimit: 5Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ollama
+  namespace: agentic-ai-demo
+spec:
+  selector:
+    app: ollama
+  ports:
+  - port: 11434
+    targetPort: 11434
+---
+# API Service - Minimal memory footprint
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: support-api
+  namespace: agentic-ai-demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: support-api
+  template:
+    metadata:
+      labels:
+        app: support-api
+    spec:
+      containers:
+      - name: support-api
+        image: python:3.12-slim
+        ports:
+        - containerPort: 8000
+        command: ["/bin/bash"]
+        args:
+        - -c
+        - |
+          pip install fastapi uvicorn pydantic requests
+          cat > /app/main.py << 'PYEOF'
+          from fastapi import FastAPI, HTTPException
+          from pydantic import BaseModel
+          import uuid
+          import json
+          import requests
+          from datetime import datetime, timedelta
+          from typing import List, Dict, Any
+          
+          app = FastAPI(title="Memory-Optimized AI Support API")
+          
+          # Mock customer data
+          MOCK_CUSTOMERS = {
+              "CUST123": {
+                  "account_id": "CUST123", 
+                  "name": "Alice Smith", 
+                  "service_status": "Active", 
+                  "plan": "Premium Internet", 
+                  "current_issues": [],
+                  "device_id": "DEV-123-RTR"
+              },
+              "CUST456": {
+                  "account_id": "CUST456", 
+                  "name": "Bob Johnson", 
+                  "service_status": "Issues Detected", 
+                  "plan": "Basic Internet", 
+                  "current_issues": ["internet_slow"],
+                  "device_id": "DEV-456-RTR"
+              },
+              "CUST789": {
+                  "account_id": "CUST789", 
+                  "name": "Charlie Brown", 
+                  "service_status": "Active", 
+                  "plan": "Standard TV + Internet", 
+                  "current_issues": ["login_failure"],
+                  "device_id": "DEV-789-RTR"
+              },
+              "CUST000": {
+                  "account_id": "CUST000", 
+                  "name": "Demo Customer", 
+                  "service_status": "Active", 
+                  "plan": "Fiber Max Enterprise", 
+                  "current_issues": [],
+                  "device_id": "DEV-000-RTR"
+              }
+          }
+          
+          # Lightweight knowledge base (fallback for when vector search isn't available)
+          KNOWLEDGE_BASE = {
+              "internet slow": "Try restarting your router, check for bandwidth-heavy applications, and run a speed test.",
+              "login issues": "Verify credentials, clear browser cache, try incognito mode, or reset password.",
+              "connection down": "Check cables, restart modem/router, verify service status in your area.",
+              "billing": "Review recent charges online, verify payment method, contact billing support."
+          }
+          
+          # Health check
+          @app.get("/health")
+          async def health():
+              return {"status": "healthy", "mode": "memory-optimized"}
+          
+          # Customer endpoints
+          @app.get("/account_status/{account_id}")
+          async def get_account_status(account_id: str):
+              customer = MOCK_CUSTOMERS.get(account_id)
+              if not customer:
+                  raise HTTPException(status_code=404, detail="Account not found")
+              return customer
+          
+          # Simple knowledge search (fallback)
+          @app.post("/knowledge_search")
+          async def search_knowledge(query_data: dict):
+              query = query_data.get("query", "").lower()
+              results = []
+              
+              for keyword, solution in KNOWLEDGE_BASE.items():
+                  if keyword in query:
+                      results.append({
+                          "content": solution,
+                          "title": f"Help with {keyword}",
+                          "score": 0.8
+                      })
+              
+              return {"results": results, "search_type": "keyword", "total": len(results)}
+          
+          # Simulated AI analysis (lightweight)
+          @app.post("/ai_agent_analysis")
+          async def ai_agent_analysis(data: dict):
+              customer_id = data.get("customer_id", "")
+              query = data.get("query", "").lower()
+              
+              # Simple rule-based analysis
+              priority = "high" if "down" in query or "outage" in query else "medium"
+              category = "connectivity" if any(word in query for word in ["internet", "slow", "down"]) else "account"
+              
+              return {
+                  "agent_response": {
+                      "customer_priority": priority,
+                      "issue_category": category,
+                      "recommended_action": "troubleshoot",
+                      "confidence": 0.85
+                  },
+                  "timestamp": datetime.now().isoformat()
+              }
+          
+          # Troubleshooting guides
+          @app.get("/troubleshooting_steps/{issue_type}")
+          async def get_troubleshooting_steps(issue_type: str):
+              guides = {
+                  "internet_slow": {
+                      "issue": "Internet Speed Issues",
+                      "steps": [
+                          "1. Restart router (unplug 30 seconds)",
+                          "2. Check for bandwidth-heavy apps",
+                          "3. Run speed test",
+                          "4. Move closer to router",
+                          "5. Contact support if issue persists"
+                      ]
+                  }
+              }
+              return guides.get(issue_type, {"error": "Guide not found"})
+          
+          # Ticket creation
+          @app.post("/create_ticket")
+          async def create_ticket(ticket_data: dict):
+              return {
+                  "ticket_id": f"TICK-{str(uuid.uuid4())[:8].upper()}",
+                  "customer_id": ticket_data.get("customer_id"),
+                  "issue_summary": ticket_data.get("issue_summary"),
+                  "priority": "medium",
+                  "status": "Open",
+                  "created_at": datetime.now().isoformat()
+              }
+          
+          # Device management
+          @app.post("/reboot_device/{device_id}")
+          async def reboot_device(device_id: str):
+              return {
+                  "status": "success",
+                  "message": f"Reboot initiated for {device_id}",
+                  "timestamp": datetime.now().isoformat()
+              }
+          
+          # LLM status (check if Ollama is available)
+          @app.get("/llm_status")
+          async def llm_status():
+              try:
+                  response = requests.get("http://ollama:11434/api/tags", timeout=3)
+                  if response.status_code == 200:
+                      models = response.json().get("models", [])
+                      return {
+                          "status": "connected",
+                          "models": len(models),
+                          "available": len(models) > 0
+                      }
+                  else:
+                      return {"status": "loading", "message": "Ollama starting up"}
+              except Exception as e:
+                  return {"status": "unavailable", "message": "LLM service starting"}
+          PYEOF
+          cd /app && python -m uvicorn main:app --host 0.0.0.0 --port 8000
+        workingDir: /app
+        resources:
+          requests:
+            memory: "128Mi"      # Minimal memory
+            cpu: "100m"
+          limits:
+            memory: "256Mi"      # Conservative limit
+            cpu: "300m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: support-api
+  namespace: agentic-ai-demo
+spec:
+  selector:
+    app: support-api
+  ports:
+  - port: 8000
+    targetPort: 8000
+---
+# Streamlit App - Memory efficient
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai-support-app
+  namespace: agentic-ai-demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ai-support-app
+  template:
+    metadata:
+      labels:
+        app: ai-support-app
+    spec:
+      containers:
+      - name: ai-support-app
+        image: python:3.12-slim
+        ports:
+        - containerPort: 8501
+        command: ["/bin/bash"]
+        args:
+        - -c
+        - |
+          pip install streamlit requests
+          cat > /app/demo.py << 'PYEOF'
+          import streamlit as st
+          import requests
+          import json
+          import time
+          
+          st.set_page_config(page_title="🤖 AI Support Demo", layout="wide")
+          
+          st.markdown("""
+          <div style="background: linear-gradient(90deg, #667eea 0%, #764ba2 100%); padding: 2rem; border-radius: 10px; color: white; text-align: center;">
+              <h1>🤖 AI Support System</h1>
+              <p>Memory-Optimized Demo for OpenShift Local</p>
+          </div>
+          """, unsafe_allow_html=True)
+          
+          # System status in sidebar
+          with st.sidebar:
+              st.markdown("### 🔧 System Status")
+              
+              # Check services
+              try:
+                  api_resp = requests.get("http://support-api:8000/health", timeout=2)
+                  st.success("🟢 API Service") if api_resp.status_code == 200 else st.error("🔴 API Service")
+              except:
+                  st.warning("🟡 API Service")
+              
+              try:
+                  weaviate_resp = requests.get("http://weaviate:8080/v1/meta", timeout=2)
+                  st.success("🟢 Vector DB") if weaviate_resp.status_code == 200 else st.error("🔴 Vector DB")
+              except:
+                  st.warning("🟡 Vector DB")
+              
+              try:
+                  llm_resp = requests.get("http://support-api:8000/llm_status", timeout=2)
+                  llm_data = llm_resp.json() if llm_resp.status_code == 200 else {}
+                  if llm_data.get("status") == "connected":
+                      st.success("🟢 LLM Service")
+                  elif llm_data.get("status") == "loading":
+                      st.warning("🟡 LLM Loading")
+                  else:
+                      st.info("🔵 LLM Starting")
+              except:
+                  st.warning("🟡 LLM Service")
+          
+          # Main interface
+          col1, col2 = st.columns([2, 1])
+          
+          with col1:
+              st.markdown("### 📝 Customer Support Query")
+              
+              inquiry = st.text_area(
+                  "Describe your issue:",
+                  height=120,
+                  placeholder="e.g., I'm customer CUST123 and my internet is slow..."
+              )
+              
+              if st.button("🔍 Analyze Issue", type="primary"):
+                  if inquiry.strip():
+                      analyze_customer_issue(inquiry)
+                  else:
+                      st.warning("Please describe your issue.")
+          
+          with col2:
+              st.markdown("### 🧪 Test Examples")
+              
+              examples = [
+                  "I'm customer CUST123 and my internet is slow",
+                  "Customer CUST456 - login problems",
+                  "CUST789 internet connection down",
+                  "CUST000 billing question"
+              ]
+              
+              for i, example in enumerate(examples):
+                  if st.button(f"📋 Example {i+1}", key=f"ex_{i}"):
+                      st.session_state.test_query = example
+              
+              if 'test_query' in st.session_state:
+                  st.text_area("Selected:", value=st.session_state.test_query, height=60)
+          
+          def analyze_customer_issue(inquiry):
+              st.markdown("---")
+              st.markdown("## 🤖 AI Analysis Results")
+              
+              # Extract customer ID
+              import re
+              cust_match = re.search(r'CUST\d+', inquiry.upper())
+              
+              if cust_match:
+                  cust_id = cust_match.group()
+                  
+                  # Customer lookup
+                  with st.expander("👤 Customer Information", expanded=True):
+                      try:
+                          response = requests.get(f"http://support-api:8000/account_status/{cust_id}", timeout=3)
+                          if response.status_code == 200:
+                              customer = response.json()
+                              
+                              col1, col2, col3 = st.columns(3)
+                              with col1:
+                                  st.metric("Customer", customer["name"])
+                              with col2:
+                                  st.metric("Plan", customer["plan"])
+                              with col3:
+                                  status_icon = "🟢" if customer["service_status"] == "Active" else "🔴"
+                                  st.metric("Status", f'{status_icon} {customer["service_status"]}')
+                              
+                              if customer["current_issues"]:
+                                  st.warning(f"⚠️ Known Issues: {', '.join(customer['current_issues'])}")
+                          else:
+                              st.error("Customer not found")
+                      except Exception as e:
+                          st.error(f"Error: {str(e)}")
+                  
+                  # AI Analysis
+                  with st.expander("🧠 AI Agent Analysis", expanded=True):
+                      try:
+                          ai_resp = requests.post(
+                              "http://support-api:8000/ai_agent_analysis",
+                              json={"customer_id": cust_id, "query": inquiry},
+                              timeout=3
+                          )
+                          if ai_resp.status_code == 200:
+                              ai_data = ai_resp.json()
+                              analysis = ai_data["agent_response"]
+                              
+                              col1, col2 = st.columns(2)
+                              with col1:
+                                  st.metric("Priority", analysis["customer_priority"].upper())
+                              with col2:
+                                  st.metric("Category", analysis["issue_category"].title())
+                              
+                              st.success(f"✅ Confidence: {analysis['confidence']:.1%}")
+                          else:
+                              st.error("AI analysis failed")
+                      except Exception as e:
+                          st.error(f"AI analysis error: {str(e)}")
+                  
+                  # Knowledge search
+                  with st.expander("🔍 Knowledge Base", expanded=True):
+                      try:
+                          kb_resp = requests.post(
+                              "http://support-api:8000/knowledge_search",
+                              json={"query": inquiry},
+                              timeout=3
+                          )
+                          if kb_resp.status_code == 200:
+                              kb_data = kb_resp.json()
+                              if kb_data["results"]:
+                                  for result in kb_data["results"]:
+                                      st.info(f"💡 {result['content']}")
+                              else:
+                                  st.warning("No relevant knowledge found")
+                          else:
+                              st.error("Knowledge search failed")
+                      except Exception as e:
+                          st.error(f"Search error: {str(e)}")
+                  
+                  # Actions
+                  with st.expander("🛠️ Available Actions", expanded=True):
+                      col1, col2 = st.columns(2)
+                      
+                      with col1:
+                          if st.button("📋 Create Ticket"):
+                              try:
+                                  ticket_resp = requests.post(
+                                      "http://support-api:8000/create_ticket",
+                                      json={"customer_id": cust_id, "issue_summary": inquiry[:50]},
+                                      timeout=3
+                                  )
+                                  if ticket_resp.status_code == 200:
+                                      ticket = ticket_resp.json()
+                                      st.success(f"✅ Ticket: {ticket['ticket_id']}")
+                                  else:
+                                      st.error("Ticket creation failed")
+                              except Exception as e:
+                                  st.error(f"Error: {str(e)}")
+                      
+                      with col2:
+                          if st.button("🔄 Reboot Device"):
+                              device_id = customer.get("device_id", "UNKNOWN")
+                              try:
+                                  reboot_resp = requests.post(f"http://support-api:8000/reboot_device/{device_id}", timeout=3)
+                                  if reboot_resp.status_code == 200:
+                                      st.success("✅ Reboot initiated")
+                                  else:
+                                      st.error("Reboot failed")
+                              except Exception as e:
+                                  st.error(f"Error: {str(e)}")
+              else:
+                  st.warning("Please include a customer ID (e.g., CUST123) for full analysis.")
+          
+          # Footer
+          st.markdown("---")
+          st.markdown("### 💾 Memory-Optimized Features")
+          col1, col2, col3 = st.columns(3)
+          
+          with col1:
+              st.info("🤖 **AI Agents**\nLightweight rule-based analysis")
+          with col2:
+              st.info("🔍 **Smart Search**\nKeyword matching with fallback")
+          with col3:
+              st.info("⚡ **Resource Efficient**\n<1GB total memory usage")
+          PYEOF
+          cd /app && streamlit run demo.py --server.port=8501 --server.address=0.0.0.0
+        workingDir: /app
+        resources:
+          requests:
+            memory: "256Mi"      # Reduced memory
+            cpu: "200m"
+          limits:
+            memory: "512Mi"      # Conservative limit
+            cpu: "400m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ai-support-app
+  namespace: agentic-ai-demo
+spec:
+  selector:
+    app: ai-support-app
+  ports:
+  - port: 8501
+    targetPort: 8501
+---
+# Routes
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: ai-support-route
+  namespace: agentic-ai-demo
+spec:
+  to:
+    kind: Service
+    name: ai-support-app
+  port:
+    targetPort: 8501
+  tls:
+    termination: edge
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: support-api-route
+  namespace: agentic-ai-demo
+spec:
+  to:
+    kind: Service
+    name: support-api
+  port:
+    targetPort: 8000
+  tls:
+    termination: edge

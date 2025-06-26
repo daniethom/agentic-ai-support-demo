@@ -1,0 +1,353 @@
+#!/bin/bash
+
+echo "🚀 Simple CRC Deployment (using public images)"
+echo "=============================================="
+
+# Check if we're in the project root
+if [ ! -f "docker-compose.yaml" ]; then
+    echo "❌ Please run this script from the project root directory"
+    exit 1
+fi
+
+# Check if CRC is running
+if ! crc status | grep -q "Running"; then
+    echo "⚠️  CRC is not running. Starting CRC..."
+    crc start
+fi
+
+# Set up environment
+eval $(crc oc-env)
+
+# Get credentials
+CRC_PASSWORD=$(crc console --credentials | grep "kubeadmin" | awk '{print $2}')
+
+# Login
+echo "🔐 Logging into OpenShift..."
+oc login -u kubeadmin -p "$CRC_PASSWORD" https://api.crc.testing:6443 --insecure-skip-tls-verify=true
+
+# Create project
+echo "📦 Creating project..."
+oc new-project agentic-ai-demo 2>/dev/null || oc project agentic-ai-demo
+
+# Create a simplified deployment using public images for now
+echo "📝 Creating simplified deployment..."
+cat > k8s/crc-simple.yaml << 'EOF'
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: agentic-ai-demo
+---
+# Weaviate Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: weaviate
+  namespace: agentic-ai-demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: weaviate
+  template:
+    metadata:
+      labels:
+        app: weaviate
+    spec:
+      containers:
+      - name: weaviate
+        image: semitechnologies/weaviate:latest
+        ports:
+        - containerPort: 8080
+        env:
+        - name: QUERY_DEFAULTS_LIMIT
+          value: "25"
+        - name: AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED
+          value: "true"
+        - name: PERSISTENCE_DATA_PATH
+          value: "/var/lib/weaviate"
+        - name: DEFAULT_VECTORIZER_MODULE
+          value: "none"
+        - name: ENABLE_MODULES
+          value: "none"
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: weaviate
+  namespace: agentic-ai-demo
+spec:
+  selector:
+    app: weaviate
+  ports:
+  - port: 8080
+    targetPort: 8080
+---
+# Simple Python API using public image
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: support-api
+  namespace: agentic-ai-demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: support-api
+  template:
+    metadata:
+      labels:
+        app: support-api
+    spec:
+      containers:
+      - name: support-api
+        image: python:3.12-slim
+        ports:
+        - containerPort: 8000
+        command: ["/bin/bash"]
+        args:
+        - -c
+        - |
+          pip install fastapi uvicorn pydantic
+          cat > /app/main.py << 'PYEOF'
+          from fastapi import FastAPI
+          import uuid
+          from datetime import datetime, timedelta
+          
+          app = FastAPI(title="Mock Support API")
+          
+          MOCK_CUSTOMERS = {
+              "CUST123": {"account_id": "CUST123", "name": "Alice Smith", "service_status": "Active", "plan": "Premium Internet", "current_issues": []},
+              "CUST456": {"account_id": "CUST456", "name": "Bob Johnson", "service_status": "Inactive", "plan": "Basic Internet", "current_issues": ["internet_down"]},
+              "CUST789": {"account_id": "CUST789", "name": "Charlie Brown", "service_status": "Active", "plan": "Standard TV", "current_issues": ["login_failure"]},
+              "CUST000": {"account_id": "CUST000", "name": "Demo Customer", "service_status": "Active", "plan": "Fiber Max", "current_issues": []}
+          }
+          
+          @app.get("/health")
+          async def health(): return {"status": "healthy"}
+          
+          @app.get("/account_status/{account_id}")
+          async def get_account_status(account_id: str):
+              return MOCK_CUSTOMERS.get(account_id, {"error": "Account not found"})
+          
+          @app.get("/troubleshooting_steps/{issue_type}")
+          async def get_troubleshooting_steps(issue_type: str):
+              guides = {
+                  "internet_slow": {"issue": "Internet Slow", "steps": ["1. Restart router", "2. Check speed", "3. Contact support"]},
+                  "login_issue": {"issue": "Login Issues", "steps": ["1. Check password", "2. Clear cache", "3. Reset password"]}
+              }
+              return guides.get(issue_type, {"error": "Guide not found"})
+          
+          @app.post("/create_ticket")
+          async def create_ticket(data: dict):
+              return {"ticket_id": str(uuid.uuid4())[:8], "status": "created", **data}
+          
+          @app.post("/reboot_device/{device_id}")
+          async def reboot_device(device_id: str):
+              return {"status": "success", "message": f"Device {device_id} rebooted"}
+          PYEOF
+          cd /app && python -m uvicorn main:app --host 0.0.0.0 --port 8000
+        workingDir: /app
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "125m"
+          limits:
+            memory: "512Mi"
+            cpu: "250m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: support-api
+  namespace: agentic-ai-demo
+spec:
+  selector:
+    app: support-api
+  ports:
+  - port: 8000
+    targetPort: 8000
+---
+# Simple Streamlit app
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai-support-app
+  namespace: agentic-ai-demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ai-support-app
+  template:
+    metadata:
+      labels:
+        app: ai-support-app
+    spec:
+      containers:
+      - name: ai-support-app
+        image: python:3.12-slim
+        ports:
+        - containerPort: 8501
+        command: ["/bin/bash"]
+        args:
+        - -c
+        - |
+          pip install streamlit requests
+          cat > /app/simple_app.py << 'PYEOF'
+          import streamlit as st
+          import requests
+          import json
+          
+          st.set_page_config(page_title="AI Support Assistant", page_icon="🤖")
+          st.title("🤖 AI-Powered Customer Support (CRC Demo)")
+          
+          st.markdown("This is a simplified version running on OpenShift Local (CRC)")
+          
+          inquiry = st.text_area("📝 Describe your issue:", height=200)
+          
+          if st.button("🔍 Get Help"):
+              if inquiry.strip():
+                  with st.spinner("Processing your request..."):
+                      # Simple logic to demonstrate the concept
+                      if "CUST" in inquiry.upper():
+                          import re
+                          cust_id = re.findall(r'CUST\d+', inquiry.upper())
+                          if cust_id:
+                              try:
+                                  response = requests.get(f"http://support-api:8000/account_status/{cust_id[0]}")
+                                  if response.status_code == 200:
+                                      customer_data = response.json()
+                                      st.success("✅ Customer Information:")
+                                      st.json(customer_data)
+                              except:
+                                  st.error("Could not retrieve customer data")
+                      
+                      if "slow" in inquiry.lower() or "internet" in inquiry.lower():
+                          try:
+                              response = requests.get("http://support-api:8000/troubleshooting_steps/internet_slow")
+                              if response.status_code == 200:
+                                  guide = response.json()
+                                  st.success("✅ Troubleshooting Steps:")
+                                  for step in guide.get("steps", []):
+                                      st.write(f"• {step}")
+                          except:
+                              st.error("Could not retrieve troubleshooting guide")
+                      
+                      if "login" in inquiry.lower():
+                          try:
+                              response = requests.get("http://support-api:8000/troubleshooting_steps/login_issue")
+                              if response.status_code == 200:
+                                  guide = response.json()
+                                  st.success("✅ Login Help:")
+                                  for step in guide.get("steps", []):
+                                      st.write(f"• {step}")
+                          except:
+                              st.error("Could not retrieve login help")
+                      
+                      st.info("💡 This is a simplified demo. The full version includes AI agents, vector search, and more advanced features.")
+              else:
+                  st.warning("Please enter a support inquiry.")
+          
+          st.sidebar.markdown("### 🧪 Test Cases")
+          st.sidebar.markdown("Try these examples:")
+          st.sidebar.markdown("- 'I'm customer CUST123 and my internet is slow'")
+          st.sidebar.markdown("- 'Customer CUST456 here - login problems'")
+          st.sidebar.markdown("- 'CUST789 needs help with account access'")
+          PYEOF
+          cd /app && streamlit run simple_app.py --server.port=8501 --server.address=0.0.0.0
+        workingDir: /app
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ai-support-app
+  namespace: agentic-ai-demo
+spec:
+  selector:
+    app: ai-support-app
+  ports:
+  - port: 8501
+    targetPort: 8501
+---
+# Routes
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: ai-support-route
+  namespace: agentic-ai-demo
+spec:
+  to:
+    kind: Service
+    name: ai-support-app
+  port:
+    targetPort: 8501
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: support-api-route
+  namespace: agentic-ai-demo
+spec:
+  to:
+    kind: Service
+    name: support-api
+  port:
+    targetPort: 8000
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+EOF
+
+# Deploy the simplified version
+echo "🚀 Deploying simplified version..."
+oc apply -f k8s/crc-simple.yaml
+
+# Wait for deployments
+echo "⏳ Waiting for deployments to be ready..."
+oc rollout status deployment/weaviate -n agentic-ai-demo --timeout=300s
+oc rollout status deployment/support-api -n agentic-ai-demo --timeout=300s
+oc rollout status deployment/ai-support-app -n agentic-ai-demo --timeout=300s
+
+# Get routes
+echo ""
+echo "✅ Deployment complete!"
+echo ""
+echo "🌐 Application URLs:"
+AI_ROUTE=$(oc get route ai-support-route -n agentic-ai-demo -o jsonpath='{.spec.host}' 2>/dev/null)
+API_ROUTE=$(oc get route support-api-route -n agentic-ai-demo -o jsonpath='{.spec.host}' 2>/dev/null)
+
+if [ -n "$AI_ROUTE" ]; then
+    echo "   🤖 AI Support Demo: https://$AI_ROUTE"
+else
+    echo "   ⚠️  AI Support Demo route not found"
+fi
+
+if [ -n "$API_ROUTE" ]; then
+    echo "   🔧 API Documentation: https://$API_ROUTE/docs"
+else
+    echo "   ⚠️  API route not found"
+fi
+
+echo ""
+echo "📊 OpenShift Console: https://console-openshift-console.apps-crc.testing"
+echo "👤 Login: kubeadmin / $CRC_PASSWORD"
+echo ""
+echo "🔍 Check status: oc get pods -n agentic-ai-demo"
+echo "🛑 To clean up: oc delete project agentic-ai-demo"

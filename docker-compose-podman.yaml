@@ -1,0 +1,108 @@
+version: "3.9"
+
+services:
+  ollama-llm:
+    image: ollama/ollama
+    container_name: ollama-llm
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_models:/root/.ollama
+    restart: unless-stopped
+    command: ["ollama", "serve"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    # Podman-specific: increase memory limits for LLM
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          memory: 2G
+
+  weaviate:
+    image: semitechnologies/weaviate:latest
+    container_name: weaviate
+    ports:
+      - "8081:8080"
+    environment:
+      QUERY_DEFAULTS_LIMIT: 25
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: "true"
+      PERSISTENCE_DATA_PATH: "/var/lib/weaviate"
+      DEFAULT_VECTORIZER_MODULE: "none"
+      ENABLE_MODULES: "none"
+      # Podman-specific: disable systemd detection
+      WEAVIATE_DISABLE_SYSTEMD: "true"
+    volumes:
+      - weaviate_data:/var/lib/weaviate
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/v1/meta"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  api-services:
+    build: 
+      context: ./api
+      dockerfile: Dockerfile
+    container_name: support-api
+    ports:
+      - "8000:8000"
+    depends_on:
+      - weaviate
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    environment:
+      # Podman-specific: explicit service URLs
+      - WEAVIATE_URL=http://weaviate:8080
+
+  app:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    container_name: ai-support-demo
+    ports:
+      - "8501:8501"
+    environment:
+      - LITELLM_CONFIG_PATH=/app/litellm.config.json
+      # Podman-specific: explicit service URLs
+      - API_BASE_URL=http://api-services:8000
+      - WEAVIATE_URL=http://weaviate:8080
+    volumes:
+      # Podman handles volume mounts differently
+      - type: bind
+        source: .
+        target: /app
+    depends_on:
+      - ollama-llm
+      - weaviate
+      - api-services
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]
+      interval: 45s
+      timeout: 15s
+      retries: 3
+      start_period: 60s
+
+volumes:
+  ollama_models:
+    driver: local
+  weaviate_data:
+    driver: local
+
+# Podman-specific network configuration
+networks:
+  default:
+    driver: bridge

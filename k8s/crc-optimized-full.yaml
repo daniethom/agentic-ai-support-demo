@@ -1,0 +1,837 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: agentic-ai-demo
+---
+# Weaviate - Optimized for available resources
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: weaviate
+  namespace: agentic-ai-demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: weaviate
+  template:
+    metadata:
+      labels:
+        app: weaviate
+    spec:
+      containers:
+      - name: weaviate
+        image: semitechnologies/weaviate:latest
+        ports:
+        - containerPort: 8080
+        env:
+        - name: QUERY_DEFAULTS_LIMIT
+          value: "25"
+        - name: AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED
+          value: "true"
+        - name: PERSISTENCE_DATA_PATH
+          value: "/var/lib/weaviate"
+        - name: DEFAULT_VECTORIZER_MODULE
+          value: "none"
+        - name: ENABLE_MODULES
+          value: "none"
+        - name: LIMIT_RESOURCES
+          value: "true"
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "250m"
+          limits:
+            memory: "1.5Gi"
+            cpu: "500m"
+        volumeMounts:
+        - name: weaviate-data
+          mountPath: /var/lib/weaviate
+        readinessProbe:
+          httpGet:
+            path: /v1/meta
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        livenessProbe:
+          httpGet:
+            path: /v1/meta
+            port: 8080
+          initialDelaySeconds: 60
+          periodSeconds: 30
+      volumes:
+      - name: weaviate-data
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: weaviate
+  namespace: agentic-ai-demo
+spec:
+  selector:
+    app: weaviate
+  ports:
+  - port: 8080
+    targetPort: 8080
+---
+# Ollama - Lightweight configuration
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ollama
+  namespace: agentic-ai-demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ollama
+  template:
+    metadata:
+      labels:
+        app: ollama
+    spec:
+      containers:
+      - name: ollama
+        image: ollama/ollama
+        ports:
+        - containerPort: 11434
+        command: ["ollama", "serve"]
+        env:
+        - name: OLLAMA_HOST
+          value: "0.0.0.0"
+        - name: OLLAMA_MODELS
+          value: "/models"
+        resources:
+          requests:
+            memory: "2Gi"
+            cpu: "500m"
+          limits:
+            memory: "3Gi"
+            cpu: "1500m"
+        volumeMounts:
+        - name: ollama-models
+          mountPath: /models
+        readinessProbe:
+          httpGet:
+            path: /api/tags
+            port: 11434
+          initialDelaySeconds: 30
+          periodSeconds: 10
+      volumes:
+      - name: ollama-models
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ollama
+  namespace: agentic-ai-demo
+spec:
+  selector:
+    app: ollama
+  ports:
+  - port: 11434
+    targetPort: 11434
+---
+# Enhanced API Service with CrewAI
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: support-api
+  namespace: agentic-ai-demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: support-api
+  template:
+    metadata:
+      labels:
+        app: support-api
+    spec:
+      containers:
+      - name: support-api
+        image: python:3.12-slim
+        ports:
+        - containerPort: 8000
+        command: ["/bin/bash"]
+        args:
+        - -c
+        - |
+          pip install fastapi uvicorn pydantic weaviate-client requests
+          cat > /app/main.py << 'PYEOF'
+          from fastapi import FastAPI, HTTPException
+          from pydantic import BaseModel
+          import uuid
+          import weaviate
+          import json
+          import requests
+          from datetime import datetime, timedelta
+          from typing import List, Dict, Any
+          
+          app = FastAPI(title="AI Support API", description="Enhanced support API with vector search")
+          
+          # Mock customer data
+          MOCK_CUSTOMERS = {
+              "CUST123": {
+                  "account_id": "CUST123", 
+                  "name": "Alice Smith", 
+                  "service_status": "Active", 
+                  "plan": "Premium Internet", 
+                  "current_issues": [],
+                  "last_login": "2024-01-15",
+                  "data_usage": "85%",
+                  "device_id": "DEV-123-RTR"
+              },
+              "CUST456": {
+                  "account_id": "CUST456", 
+                  "name": "Bob Johnson", 
+                  "service_status": "Issues Detected", 
+                  "plan": "Basic Internet", 
+                  "current_issues": ["internet_slow", "billing_issue"],
+                  "last_login": "2024-01-10",
+                  "data_usage": "45%",
+                  "device_id": "DEV-456-RTR"
+              },
+              "CUST789": {
+                  "account_id": "CUST789", 
+                  "name": "Charlie Brown", 
+                  "service_status": "Active", 
+                  "plan": "Standard TV + Internet", 
+                  "current_issues": ["login_failure"],
+                  "last_login": "Never",
+                  "data_usage": "12%",
+                  "device_id": "DEV-789-RTR"
+              },
+              "CUST000": {
+                  "account_id": "CUST000", 
+                  "name": "Demo Customer", 
+                  "service_status": "Active", 
+                  "plan": "Fiber Max Enterprise", 
+                  "current_issues": [],
+                  "last_login": "2024-01-16",
+                  "data_usage": "23%",
+                  "device_id": "DEV-000-RTR"
+              }
+          }
+          
+          # Troubleshooting guides
+          TROUBLESHOOTING_GUIDES = {
+              "internet_slow": {
+                  "issue": "Internet Speed Issues",
+                  "steps": [
+                      "1. Restart your router and modem (unplug for 30 seconds)",
+                      "2. Check if multiple devices are using bandwidth heavily",
+                      "3. Run a speed test at fast.com or speedtest.net",
+                      "4. Move closer to your router if using Wi-Fi",
+                      "5. Check for background downloads or updates",
+                      "6. Contact support if speeds are significantly below your plan"
+                  ],
+                  "estimated_time": "15-20 minutes",
+                  "success_rate": "85%"
+              },
+              "login_issue": {
+                  "issue": "Account Login Problems",
+                  "steps": [
+                      "1. Verify username and password (case-sensitive)",
+                      "2. Clear browser cache and cookies",
+                      "3. Try incognito/private browsing mode",
+                      "4. Use 'Forgot Password' to reset credentials",
+                      "5. Wait 15-30 minutes if account appears locked",
+                      "6. Contact support for manual account unlock"
+                  ],
+                  "estimated_time": "5-10 minutes",
+                  "success_rate": "92%"
+              }
+          }
+          
+          # Vector search function
+          def search_knowledge_base(query: str):
+              try:
+                  client = weaviate.connect_to_local(host="weaviate", port=8080)
+                  collection = client.collections.get("SupportFAQs")
+                  
+                  response = collection.query.near_text(
+                      query=query,
+                      limit=3
+                  )
+                  
+                  results = []
+                  for item in response.objects:
+                      results.append({
+                          "content": item.properties.get("text", ""),
+                          "metadata": item.properties.get("metadata", {}),
+                          "score": getattr(item, "score", 0.8)
+                      })
+                  
+                  client.close()
+                  return results
+              except Exception as e:
+                  print(f"Vector search error: {e}")
+                  return []
+          
+          # AI Agent simulation
+          def simulate_ai_agent_response(customer_id: str, query: str):
+              customer = MOCK_CUSTOMERS.get(customer_id, {})
+              
+              # Simulate agent analysis
+              analysis = {
+                  "customer_priority": "high" if customer.get("plan", "").lower().startswith("fiber") else "medium",
+                  "issue_category": "connectivity" if "internet" in query.lower() or "slow" in query.lower() else "account",
+                  "recommended_action": "troubleshoot" if "slow" in query.lower() else "escalate",
+                  "confidence": 0.87
+              }
+              
+              return analysis
+          
+          # Health check
+          @app.get("/health")
+          async def health():
+              return {"status": "healthy", "features": ["vector-search", "ai-agents", "full-demo"]}
+          
+          # Customer endpoints
+          @app.get("/account_status/{account_id}")
+          async def get_account_status(account_id: str):
+              customer = MOCK_CUSTOMERS.get(account_id)
+              if not customer:
+                  raise HTTPException(status_code=404, detail="Account not found")
+              return customer
+          
+          # Knowledge base search with vector similarity
+          @app.post("/knowledge_search")
+          async def search_knowledge(query_data: dict):
+              query = query_data.get("query", "")
+              
+              # Try vector search first
+              vector_results = search_knowledge_base(query)
+              
+              if vector_results:
+                  return {"results": vector_results, "search_type": "vector", "total": len(vector_results)}
+              else:
+                  # Fallback to keyword search
+                  return {"results": [], "search_type": "fallback", "total": 0}
+          
+          # AI Agent endpoint
+          @app.post("/ai_agent_analysis")
+          async def ai_agent_analysis(data: dict):
+              customer_id = data.get("customer_id", "")
+              query = data.get("query", "")
+              
+              if not customer_id:
+                  raise HTTPException(status_code=400, detail="Customer ID required")
+              
+              analysis = simulate_ai_agent_response(customer_id, query)
+              
+              return {
+                  "agent_response": analysis,
+                  "timestamp": datetime.now().isoformat(),
+                  "agent_id": "tier-1-support-agent"
+              }
+          
+          # Troubleshooting endpoints
+          @app.get("/troubleshooting_steps/{issue_type}")
+          async def get_troubleshooting_steps(issue_type: str):
+              guide = TROUBLESHOOTING_GUIDES.get(issue_type)
+              if not guide:
+                  raise HTTPException(status_code=404, detail=f"No guide found for '{issue_type}'")
+              return guide
+          
+          # Ticketing with AI priority
+          @app.post("/create_ticket")
+          async def create_ticket(ticket_data: dict):
+              customer_id = ticket_data.get("customer_id", "")
+              issue_summary = ticket_data.get("issue_summary", "")
+              
+              # AI determines priority
+              customer = MOCK_CUSTOMERS.get(customer_id, {})
+              ai_priority = "high" if customer.get("plan", "").lower().startswith("fiber") else "medium"
+              
+              ticket_id = f"TICK-{str(uuid.uuid4())[:8].upper()}"
+              
+              return {
+                  "ticket_id": ticket_id,
+                  "customer_id": customer_id,
+                  "issue_summary": issue_summary,
+                  "priority": ai_priority,
+                  "status": "Open",
+                  "ai_assigned": True,
+                  "created_at": datetime.now().isoformat()
+              }
+          
+          # Device management
+          @app.post("/reboot_device/{device_id}")
+          async def reboot_device(device_id: str):
+              return {
+                  "status": "success",
+                  "message": f"Remote reboot initiated for {device_id}",
+                  "estimated_downtime": "2-3 minutes",
+                  "timestamp": datetime.now().isoformat()
+              }
+          
+          # LLM integration check
+          @app.get("/llm_status")
+          async def llm_status():
+              try:
+                  response = requests.get("http://ollama:11434/api/tags", timeout=5)
+                  if response.status_code == 200:
+                      return {"status": "connected", "models": response.json()}
+                  else:
+                      return {"status": "disconnected", "error": "No response"}
+              except Exception as e:
+                  return {"status": "error", "message": str(e)}
+          PYEOF
+          cd /app && python -m uvicorn main:app --host 0.0.0.0 --port 8000
+        workingDir: /app
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "200m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: support-api
+  namespace: agentic-ai-demo
+spec:
+  selector:
+    app: support-api
+  ports:
+  - port: 8000
+    targetPort: 8000
+---
+# Enhanced Streamlit App
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai-support-app
+  namespace: agentic-ai-demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ai-support-app
+  template:
+    metadata:
+      labels:
+        app: ai-support-app
+    spec:
+      containers:
+      - name: ai-support-app
+        image: python:3.12-slim
+        ports:
+        - containerPort: 8501
+        command: ["/bin/bash"]
+        args:
+        - -c
+        - |
+          pip install streamlit requests plotly pandas
+          cat > /app/ai_demo.py << 'PYEOF'
+          import streamlit as st
+          import requests
+          import json
+          import time
+          import plotly.graph_objects as go
+          from datetime import datetime
+          
+          st.set_page_config(page_title="🤖 Agentic AI Support", page_icon="🤖", layout="wide")
+          
+          # Custom CSS
+          st.markdown("""
+          <style>
+          .main-header {
+              background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+              padding: 2rem;
+              border-radius: 10px;
+              color: white;
+              text-align: center;
+              margin-bottom: 2rem;
+          }
+          .agent-card {
+              background: #f0f2f6;
+              padding: 1rem;
+              border-radius: 8px;
+              border-left: 4px solid #667eea;
+              margin: 1rem 0;
+          }
+          .metric-card {
+              background: white;
+              padding: 1rem;
+              border-radius: 8px;
+              box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+              text-align: center;
+          }
+          </style>
+          """, unsafe_allow_html=True)
+          
+          # Header
+          st.markdown("""
+          <div class="main-header">
+              <h1>🤖 Agentic AI Support System</h1>
+              <p>Advanced Multi-Agent Customer Support with Vector Search & LLM Integration</p>
+              <div style="background: rgba(255,255,255,0.2); padding: 0.5rem; border-radius: 20px; display: inline-block;">
+                  🚀 Full Demo - OpenShift Local (CRC)
+              </div>
+          </div>
+          """, unsafe_allow_html=True)
+          
+          # Sidebar for system status
+          with st.sidebar:
+              st.markdown("### 🔧 System Status")
+              
+              # Check services
+              services_status = {}
+              
+              try:
+                  api_response = requests.get("http://support-api:8000/health", timeout=3)
+                  services_status["API"] = "🟢 Online" if api_response.status_code == 200 else "🔴 Offline"
+              except:
+                  services_status["API"] = "🔴 Offline"
+              
+              try:
+                  weaviate_response = requests.get("http://weaviate:8080/v1/meta", timeout=3)
+                  services_status["Vector DB"] = "🟢 Online" if weaviate_response.status_code == 200 else "🔴 Offline"
+              except:
+                  services_status["Vector DB"] = "🔴 Offline"
+              
+              try:
+                  llm_response = requests.get("http://support-api:8000/llm_status", timeout=3)
+                  llm_data = llm_response.json() if llm_response.status_code == 200 else {}
+                  services_status["LLM"] = "🟢 Connected" if llm_data.get("status") == "connected" else "🟡 Loading"
+              except:
+                  services_status["LLM"] = "🔴 Offline"
+              
+              for service, status in services_status.items():
+                  st.markdown(f"**{service}**: {status}")
+              
+              st.markdown("---")
+              st.markdown("### 🧪 Demo Features")
+              st.markdown("✅ Vector Knowledge Search")
+              st.markdown("✅ AI Agent Analysis")
+              st.markdown("✅ Multi-tier Support")
+              st.markdown("✅ Real-time LLM Integration")
+              st.markdown("✅ Automated Ticket Routing")
+          
+          # Main interface
+          col1, col2 = st.columns([2, 1])
+          
+          with col1:
+              st.markdown("### 🎯 AI Support Assistant")
+              
+              # Customer inquiry input
+              inquiry = st.text_area(
+                  "Describe your technical issue:",
+                  height=120,
+                  placeholder="e.g., I'm customer CUST123 and my internet connection is very slow today..."
+              )
+              
+              col_a, col_b = st.columns(2)
+              with col_a:
+                  if st.button("🤖 Analyze with AI Agents", type="primary"):
+                      if inquiry.strip():
+                          process_inquiry_with_ai(inquiry)
+                      else:
+                          st.warning("Please describe your issue first.")
+              
+              with col_b:
+                  if st.button("🔍 Quick Knowledge Search"):
+                      if inquiry.strip():
+                          perform_knowledge_search(inquiry)
+                      else:
+                          st.warning("Please enter a search query.")
+          
+          with col2:
+              st.markdown("### 📋 Quick Test Cases")
+              
+              test_cases = [
+                  "I'm customer CUST123 and my internet is extremely slow",
+                  "Customer CUST456 - cannot login to my account", 
+                  "CUST789 here - internet connection keeps dropping",
+                  "CUST000 - billing question about my recent charges"
+              ]
+              
+              for i, case in enumerate(test_cases):
+                  if st.button(f"📝 Test Case {i+1}", key=f"test_{i}"):
+                      st.session_state.selected_case = case
+              
+              if 'selected_case' in st.session_state:
+                  st.text_area("Selected test case:", value=st.session_state.selected_case, height=80)
+          
+          def process_inquiry_with_ai(inquiry):
+              st.markdown("---")
+              st.markdown("## 🤖 AI Agent Processing")
+              
+              # Extract customer ID
+              import re
+              cust_match = re.search(r'CUST\d+', inquiry.upper())
+              
+              if cust_match:
+                  cust_id = cust_match.group()
+                  
+                  # Step 1: Customer Analysis
+                  with st.expander("👤 Tier 1 Agent: Customer Analysis", expanded=True):
+                      with st.spinner("Analyzing customer data..."):
+                          time.sleep(1)  # Simulate processing
+                          
+                          try:
+                              response = requests.get(f"http://support-api:8000/account_status/{cust_id}", timeout=5)
+                              if response.status_code == 200:
+                                  customer_data = response.json()
+                                  
+                                  col1, col2, col3 = st.columns(3)
+                                  with col1:
+                                      st.metric("Customer", customer_data["name"])
+                                      st.metric("Plan", customer_data["plan"])
+                                  with col2:
+                                      status_color = "🟢" if customer_data["service_status"] == "Active" else "🔴"
+                                      st.metric("Status", f'{status_color} {customer_data["service_status"]}')
+                                      st.metric("Device ID", customer_data.get("device_id", "N/A"))
+                                  with col3:
+                                      st.metric("Data Usage", customer_data.get("data_usage", "N/A"))
+                                      st.metric("Last Login", customer_data.get("last_login", "Unknown"))
+                                  
+                                  if customer_data["current_issues"]:
+                                      st.warning(f"⚠️ Active Issues: {', '.join(customer_data['current_issues'])}")
+                              else:
+                                  st.error(f"❌ Customer {cust_id} not found")
+                          except Exception as e:
+                              st.error(f"❌ Error retrieving customer data: {str(e)}")
+                  
+                  # Step 2: AI Agent Analysis  
+                  with st.expander("🧠 AI Agent: Issue Analysis", expanded=True):
+                      with st.spinner("AI agents analyzing the issue..."):
+                          time.sleep(2)  # Simulate AI processing
+                          
+                          try:
+                              ai_response = requests.post(
+                                  "http://support-api:8000/ai_agent_analysis",
+                                  json={"customer_id": cust_id, "query": inquiry},
+                                  timeout=5
+                              )
+                              if ai_response.status_code == 200:
+                                  ai_data = ai_response.json()
+                                  analysis = ai_data["agent_response"]
+                                  
+                                  col1, col2, col3 = st.columns(3)
+                                  with col1:
+                                      st.metric("Priority", analysis["customer_priority"].upper())
+                                  with col2:
+                                      st.metric("Category", analysis["issue_category"].title())
+                                  with col3:
+                                      st.metric("Confidence", f"{analysis['confidence']:.1%}")
+                                  
+                                  if analysis["recommended_action"] == "troubleshoot":
+                                      st.success("✅ AI Recommendation: Provide troubleshooting steps")
+                                  else:
+                                      st.info("ℹ️ AI Recommendation: Escalate to specialist")
+                              else:
+                                  st.error("❌ AI analysis failed")
+                          except Exception as e:
+                              st.error(f"❌ AI analysis error: {str(e)}")
+                  
+                  # Step 3: Knowledge Base Search
+                  with st.expander("🔍 Vector Knowledge Search", expanded=True):
+                      with st.spinner("Searching knowledge base..."):
+                          time.sleep(1)
+                          
+                          try:
+                              kb_response = requests.post(
+                                  "http://support-api:8000/knowledge_search",
+                                  json={"query": inquiry},
+                                  timeout=5
+                              )
+                              if kb_response.status_code == 200:
+                                  kb_data = kb_response.json()
+                                  st.info(f"🔍 Search Type: {kb_data.get('search_type', 'unknown').title()}")
+                                  
+                                  if kb_data["results"]:
+                                      for i, result in enumerate(kb_data["results"][:2]):
+                                          st.markdown(f"**Result {i+1}** (Score: {result.get('score', 0):.2f})")
+                                          st.write(result.get("content", "No content"))
+                                          st.markdown("---")
+                                  else:
+                                      st.warning("No relevant knowledge articles found")
+                              else:
+                                  st.error("❌ Knowledge search failed")
+                          except Exception as e:
+                              st.error(f"❌ Knowledge search error: {str(e)}")
+                  
+                  # Step 4: Troubleshooting & Actions
+                  if "slow" in inquiry.lower() or "internet" in inquiry.lower():
+                      with st.expander("🛠️ Tier 2 Agent: Technical Resolution", expanded=True):
+                          col1, col2 = st.columns(2)
+                          
+                          with col1:
+                              if st.button("📋 Get Troubleshooting Steps"):
+                                  try:
+                                      ts_response = requests.get("http://support-api:8000/troubleshooting_steps/internet_slow", timeout=5)
+                                      if ts_response.status_code == 200:
+                                          guide_data = ts_response.json()
+                                          st.success(f"✅ {guide_data['issue']} (Success Rate: {guide_data.get('success_rate', 'N/A')})")
+                                          for step in guide_data["steps"]:
+                                              st.write(f"• {step}")
+                                  except Exception as e:
+                                      st.error(f"Error: {str(e)}")
+                          
+                          with col2:
+                              device_id = customer_data.get("device_id", "DEV-UNKNOWN")
+                              if st.button("🔄 Reboot Customer Device"):
+                                  try:
+                                      reboot_response = requests.post(f"http://support-api:8000/reboot_device/{device_id}", timeout=5)
+                                      if reboot_response.status_code == 200:
+                                          reboot_data = reboot_response.json()
+                                          st.success(f"✅ {reboot_data['message']}")
+                                          st.info(f"⏱️ {reboot_data.get('estimated_downtime', 'Unknown')} downtime")
+                                  except Exception as e:
+                                      st.error(f"Error: {str(e)}")
+                  
+                  # Step 5: Ticket Creation
+                  with st.expander("🎫 Support Ticket Management", expanded=True):
+                      if st.button("📋 Create Support Ticket"):
+                          try:
+                              ticket_response = requests.post(
+                                  "http://support-api:8000/create_ticket",
+                                  json={
+                                      "customer_id": cust_id,
+                                      "issue_summary": inquiry[:100] + "..." if len(inquiry) > 100 else inquiry
+                                  },
+                                  timeout=5
+                              )
+                              if ticket_response.status_code == 200:
+                                  ticket_data = ticket_response.json()
+                                  st.success(f"✅ Ticket Created: {ticket_data['ticket_id']}")
+                                  
+                                  col1, col2 = st.columns(2)
+                                  with col1:
+                                      st.metric("Priority", ticket_data.get("priority", "Medium").upper())
+                                  with col2:
+                                      st.metric("AI Assigned", "✅ Yes" if ticket_data.get("ai_assigned") else "❌ No")
+                              else:
+                                  st.error("❌ Failed to create ticket")
+                          except Exception as e:
+                              st.error(f"❌ Ticket creation error: {str(e)}")
+              else:
+                  st.warning("⚠️ Please include a customer ID (e.g., CUST123) in your inquiry for full AI analysis.")
+          
+          def perform_knowledge_search(query):
+              st.markdown("---")
+              st.markdown("## 🔍 Knowledge Base Search Results")
+              
+              with st.spinner("Searching knowledge base..."):
+                  try:
+                      kb_response = requests.post(
+                          "http://support-api:8000/knowledge_search",
+                          json={"query": query},
+                          timeout=5
+                      )
+                      if kb_response.status_code == 200:
+                          kb_data = kb_response.json()
+                          
+                          search_type = kb_data.get('search_type', 'unknown')
+                          if search_type == "vector":
+                              st.success("🎯 Vector similarity search completed")
+                          else:
+                              st.info("📝 Keyword-based search completed")
+                          
+                          if kb_data["results"]:
+                              for i, result in enumerate(kb_data["results"]):
+                                  with st.expander(f"📚 Knowledge Article {i+1} (Relevance: {result.get('score', 0):.2f})"):
+                                      st.write(result.get("content", "No content available"))
+                                      if result.get("metadata"):
+                                          st.json(result["metadata"])
+                          else:
+                              st.warning("🔍 No relevant articles found. Try different keywords.")
+                      else:
+                          st.error("❌ Knowledge search service unavailable")
+                  except Exception as e:
+                      st.error(f"❌ Search error: {str(e)}")
+          
+          # Footer with system info
+          st.markdown("---")
+          col1, col2, col3 = st.columns(3)
+          
+          with col1:
+              st.markdown("""
+              <div class="metric-card">
+                  <h4>🤖 AI Agents</h4>
+                  <p>Multi-tier support system with intelligent routing</p>
+              </div>
+              """, unsafe_allow_html=True)
+          
+          with col2:
+              st.markdown("""
+              <div class="metric-card">
+                  <h4>🔍 Vector Search</h4>
+                  <p>Semantic similarity matching for accurate results</p>
+              </div>
+              """, unsafe_allow_html=True)
+          
+          with col3:
+              st.markdown("""
+              <div class="metric-card">
+                  <h4>⚡ Real-time</h4>
+                  <p>Instant analysis and automated actions</p>
+              </div>
+              """, unsafe_allow_html=True)
+          PYEOF
+          cd /app && streamlit run ai_demo.py --server.port=8501 --server.address=0.0.0.0
+        workingDir: /app
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "300m"
+          limits:
+            memory: "1Gi"
+            cpu: "600m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ai-support-app
+  namespace: agentic-ai-demo
+spec:
+  selector:
+    app: ai-support-app
+  ports:
+  - port: 8501
+    targetPort: 8501
+---
+# Routes
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: ai-support-route
+  namespace: agentic-ai-demo
+spec:
+  to:
+    kind: Service
+    name: ai-support-app
+  port:
+    targetPort: 8501
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: support-api-route
+  namespace: agentic-ai-demo
+spec:
+  to:
+    kind: Service
+    name: support-api
+  port:
+    targetPort: 8000
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
